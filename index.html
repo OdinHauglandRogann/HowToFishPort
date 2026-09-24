@@ -33,35 +33,36 @@
     <script>
       var canvas = document.querySelector("#unity-canvas");
 
-      // Shows a temporary message banner/ribbon for a few seconds, or
-      // a permanent error message on top of the canvas if type=='error'.
-      // If type=='warning', a yellow highlight color is used.
-      // Modify or remove this function to customize the visually presented
-      // way that non-critical warnings and error messages are presented to the
-      // user.
       function unityShowBanner(msg, type) {
         var warningBanner = document.querySelector("#unity-warning");
         function updateBannerVisibility() {
-          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+          warningBanner.style.display = warningBanner.children.length ? "block" : "none";
         }
-        var div = document.createElement('div');
+        var div = document.createElement("div");
         div.innerHTML = msg;
         warningBanner.appendChild(div);
-        if (type == 'error') div.style = 'background: red; padding: 10px;';
-        else {
-          if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
-          setTimeout(function() {
-            warningBanner.removeChild(div);
-            updateBannerVisibility();
-          }, 5000);
+        if (type === "error") {
+          div.style = "background: red; padding: 10px;";
+          console.error("[unity]", msg);
+        } else {
+          if (type === "warning") {
+            div.style = "background: yellow; color: #000; padding: 10px;";
+            console.warn("[unity]", msg);
+          } else {
+            div.style = "background: rgba(0,0,0,0.75); color: #fff; padding: 10px;";
+            console.log("[unity]", msg);
+          }
+          if (type !== "info") {
+            setTimeout(function() {
+              if (div.parentNode) {
+                warningBanner.removeChild(div);
+                updateBannerVisibility();
+              }
+            }, 5000);
+          }
         }
         updateBannerVisibility();
       }
-
-      // Unity surfaces non-fatal problems as alert() ("This page says...") and as an on-page
-      // banner. Neither is actionable for a player, so send both to the console instead.
-      window.alert = function (m) { console.warn("[unity]", m); };
-      unityShowBanner = function (msg, type) { console.warn("[unity " + (type || "info") + "]", msg); };
 
       var buildUrl = "Build";
       var loaderUrl = buildUrl + "/WebGL.loader.js";
@@ -75,111 +76,124 @@
         productName: "ExportedProject",
         productVersion: "1.0",
         showBanner: unityShowBanner,
-        // errorHandler: function(err, url, line) {
-        //    alert("error " + err + " occurred at line " + line);
-        //    // Return 'true' if you handled this error and don't want Unity
-        //    // to process it further, 'false' otherwise.
-        //    return true;
-        // },
       };
 
-      config.cacheControl = function (url) { return "no-store"; };
+      config.cacheControl = function(url) {
+        if (url.startsWith("blob:")) return "no-store";
+        if (url.indexOf(buildUrl + "/") === 0) return "must-revalidate";
+        return "no-store";
+      };
       config.autoSyncPersistentDataPath = true;
 
-      // By default, Unity keeps WebGL canvas render target size matched with
-      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
-      // Set this to false if you want to decouple this synchronization from
-      // happening inside the engine, and you would instead like to size up
-      // the canvas DOM size and WebGL render target sizes yourself.
-      // config.matchWebGLToCanvasSize = false;
-
-      // If you would like all file writes inside Unity Application.persistentDataPath
-      // directory to automatically persist so that the contents are remembered when
-      // the user revisits the site the next time, uncomment the following line:
-      // config.autoSyncPersistentDataPath = true;
-      // This autosyncing is currently not the default behavior to avoid regressing
-      // existing user projects that might rely on the earlier manual
-      // JS_FileSystem_Sync() behavior, but in future Unity version, this will be
-      // expected to change.
-
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
-
-        var meta = document.createElement('meta');
-        meta.name = 'viewport';
-        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
-        document.getElementsByTagName('head')[0].appendChild(meta);
+        var meta = document.createElement("meta");
+        meta.name = "viewport";
+        meta.content = "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes";
+        document.getElementsByTagName("head")[0].appendChild(meta);
         document.querySelector("#unity-container").className = "unity-mobile";
         canvas.className = "unity-mobile";
-
-        // To lower canvas resolution on mobile devices to gain some
-        // performance, uncomment the following line:
-        // config.devicePixelRatio = 1;
-
-
-      } else {
-        // Desktop style: Render the game canvas in a window that can be maximized to fullscreen:
-        /* size comes from the full-page CSS */
-        
       }
 
       document.querySelector("#unity-loading-bar").style.display = "block";
 
-      // Prefer the whole file; fall back to stitching the uploaded parts together.
-      // Not every static host answers HEAD, so fall back to a one-byte ranged GET.
-      async function exists(url) {
-        try {
-          var head = await fetch(url, { method: 'HEAD' });
-          if (head.ok) return true;
-          if (head.status === 404) return false;
-        } catch (e) {}
-        try {
-          var res = await fetch(url, { headers: { Range: 'bytes=0-0' } });
-          return res.ok || res.status === 206;
-        } catch (e) { return false; }
-      }
-      async function resolveSplitFile(url) {
-        if (await exists(url)) return url;
-        var namings = [
-          function (i) { return url + '.part' + (i + 1); },
-          function (i) { return url + '.' + String(i).padStart(3, '0'); },
-          function (i) { return url + '.part' + String(i + 1).padStart(3, '0'); }
-        ];
-        for (var n = 0; n < namings.length; n++) {
-          if (!(await exists(namings[n](0)))) continue;
-          var blobs = [];
-          for (var i = 0; i < 128; i++) {
-            var part = namings[n](i);
-            if (!(await exists(part))) break;
-            blobs.push(await (await fetch(part)).blob());
-          }
-          // A Blob of Blobs can be backed by disk, so peak memory stays near one part.
-          return URL.createObjectURL(new Blob(blobs, { type: 'application/octet-stream' }));
+      var statusNode = null;
+      function setStatus(message, isError) {
+        if (!statusNode) {
+          statusNode = document.createElement("div");
+          statusNode.style = "background: rgba(0,0,0,0.75); color: #fff; padding: 10px;";
+          document.querySelector("#unity-warning").appendChild(statusNode);
+          document.querySelector("#unity-warning").style.display = "block";
         }
-        throw new Error('Could not find ' + url + ' or any of its parts.');
+        statusNode.textContent = message;
+        if (isError) {
+          statusNode.style = "background: red; color: #fff; padding: 10px;";
+        }
       }
+
+      async function assembleSplitFile(partUrls, mimeType, label) {
+        setStatus("Loading " + label + "...");
+        var blobs = [];
+        for (var i = 0; i < partUrls.length; i++) {
+          var partUrl = partUrls[i];
+          var response = await fetch(partUrl, { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error("Failed to load " + partUrl + " (HTTP " + response.status + ")");
+          }
+          blobs.push(await response.blob());
+        }
+        return URL.createObjectURL(new Blob(blobs, { type: mimeType }));
+      }
+
+      var dataPartUrls = [
+        buildUrl + "/WebGL.data.part1",
+        buildUrl + "/WebGL.data.part2",
+        buildUrl + "/WebGL.data.part3",
+        buildUrl + "/WebGL.data.part4",
+        buildUrl + "/WebGL.data.part5",
+        buildUrl + "/WebGL.data.part6",
+        buildUrl + "/WebGL.data.part7"
+      ];
+
+      var wasmPartUrls = [
+        buildUrl + "/WebGL.wasm.000",
+        buildUrl + "/WebGL.wasm.001",
+        buildUrl + "/WebGL.wasm.002",
+        buildUrl + "/WebGL.wasm.003"
+      ];
 
       var script = document.createElement("script");
       script.src = loaderUrl;
-      script.onload = async () => {
-        config.dataUrl = await resolveSplitFile(config.dataUrl);
-        config.codeUrl = await resolveSplitFile(config.codeUrl);
-        createUnityInstance(canvas, config, (progress) => {
-          document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
-              }).then((unityInstance) => {
-                window.unityInstance = unityInstance;
-                document.querySelector("#unity-loading-bar").style.display = "none";
-                document.querySelector("#unity-fullscreen-button").onclick = () => {
-                  unityInstance.SetFullscreen(1);
-                };
+      script.onload = async function() {
+        var assembledDataUrl = null;
+        var assembledWasmUrl = null;
+        try {
+          if (window.location.protocol === "file:") {
+            throw new Error("This Unity WebGL build must be served over http(s). Open it through GitHub Pages or a local static server instead of file://.");
+          }
 
-              }).catch((message) => {
-                alert(message);
-              });
-            };
+          assembledDataUrl = await assembleSplitFile(dataPartUrls, "application/octet-stream", "game data");
+          assembledWasmUrl = await assembleSplitFile(wasmPartUrls, "application/wasm", "WebAssembly code");
+          config.dataUrl = assembledDataUrl;
+          config.codeUrl = assembledWasmUrl;
+
+          setStatus("Starting Unity...");
+          var unityInstance = await createUnityInstance(canvas, config, function(progress) {
+            document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
+            setStatus("Starting Unity... " + Math.round(progress * 100) + "%");
+          });
+
+          window.unityInstance = unityInstance;
+          document.querySelector("#unity-loading-bar").style.display = "none";
+          if (statusNode && statusNode.parentNode) {
+            statusNode.parentNode.removeChild(statusNode);
+            statusNode = null;
+            if (!document.querySelector("#unity-warning").children.length) {
+              document.querySelector("#unity-warning").style.display = "none";
+            }
+          }
+          document.querySelector("#unity-fullscreen-button").onclick = function() {
+            unityInstance.SetFullscreen(1);
+          };
+        } catch (error) {
+          var errorMessage = error && error.message ? error.message : String(error);
+          document.querySelector("#unity-loading-bar").style.display = "none";
+          setStatus(errorMessage, true);
+          unityShowBanner(errorMessage, "error");
+          console.error("Unity startup failed:", error);
+        } finally {
+          if (assembledDataUrl) URL.revokeObjectURL(assembledDataUrl);
+          if (assembledWasmUrl) URL.revokeObjectURL(assembledWasmUrl);
+        }
+      };
+      script.onerror = function() {
+        var message = "Failed to load Unity loader script at " + loaderUrl + ".";
+        document.querySelector("#unity-loading-bar").style.display = "none";
+        setStatus(message, true);
+        unityShowBanner(message, "error");
+        console.error(message);
+      };
 
       document.body.appendChild(script);
-
     </script>
   </body>
 </html>
