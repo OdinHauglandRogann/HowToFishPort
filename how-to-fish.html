@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Unity Web Player | How To Fish</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <style>
+      /* full-page canvas */
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+      #unity-container { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #unity-canvas { width: 100% !important; height: 100% !important; display: block; background: #000; }
+      #unity-footer { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="unity-container" class="unity-desktop">
+      <canvas id="unity-canvas" width=960 height=600 tabindex="-1"></canvas>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-warning"> </div>
+      <div id="unity-footer">
+        <div id="unity-logo-title-footer"></div>
+        <div id="unity-fullscreen-button"></div>
+        <div id="unity-build-title">How To Fish</div>
+      </div>
+    </div>
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+
+      function unityShowBanner(msg, type) {
+        var warningBanner = document.querySelector("#unity-warning");
+        function updateBannerVisibility() {
+          warningBanner.style.display = warningBanner.children.length ? "block" : "none";
+        }
+        var div = document.createElement("div");
+        div.innerHTML = msg;
+        warningBanner.appendChild(div);
+        if (type === "error") {
+          div.style = "background: red; padding: 10px;";
+          console.error("[unity]", msg);
+        } else {
+          if (type === "warning") {
+            div.style = "background: yellow; color: #000; padding: 10px;";
+            console.warn("[unity]", msg);
+          } else {
+            div.style = "background: rgba(0,0,0,0.75); color: #fff; padding: 10px;";
+            console.log("[unity]", msg);
+          }
+          if (type !== "info") {
+            setTimeout(function() {
+              if (div.parentNode) {
+                warningBanner.removeChild(div);
+                updateBannerVisibility();
+              }
+            }, 5000);
+          }
+        }
+        updateBannerVisibility();
+      }
+
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/WebGL.loader.js";
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/WebGL.data",
+        frameworkUrl: buildUrl + "/WebGL.framework.js",
+        codeUrl: buildUrl + "/WebGL.wasm",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "DefaultCompany",
+        productName: "How To Fish",
+        productVersion: "1.0",
+        showBanner: unityShowBanner,
+      };
+
+      config.cacheControl = function(url) {
+        if (url.startsWith("blob:")) return "no-store";
+        if (url.indexOf(buildUrl + "/") === 0) return "must-revalidate";
+        return "no-store";
+      };
+      config.autoSyncPersistentDataPath = true;
+
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        var meta = document.createElement("meta");
+        meta.name = "viewport";
+        meta.content = "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes";
+        document.getElementsByTagName("head")[0].appendChild(meta);
+        document.querySelector("#unity-container").className = "unity-mobile";
+        canvas.className = "unity-mobile";
+      }
+
+      document.querySelector("#unity-loading-bar").style.display = "block";
+
+      var statusNode = null;
+      function setStatus(message, isError) {
+        if (!statusNode) {
+          statusNode = document.createElement("div");
+          statusNode.style = "background: rgba(0,0,0,0.75); color: #fff; padding: 10px;";
+          document.querySelector("#unity-warning").appendChild(statusNode);
+          document.querySelector("#unity-warning").style.display = "block";
+        }
+        statusNode.textContent = message;
+        if (isError) {
+          statusNode.style = "background: red; color: #fff; padding: 10px;";
+        }
+      }
+
+      async function assembleSplitFile(partUrls, mimeType, label) {
+        setStatus("Loading " + label + "...");
+        var blobs = [];
+        for (var i = 0; i < partUrls.length; i++) {
+          var partUrl = partUrls[i];
+          var response = await fetch(partUrl, { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error("Failed to load " + partUrl + " (HTTP " + response.status + ")");
+          }
+          blobs.push(await response.blob());
+        }
+        return URL.createObjectURL(new Blob(blobs, { type: mimeType }));
+      }
+
+      var dataPartUrls = [
+        buildUrl + "/WebGL.data.part1",
+        buildUrl + "/WebGL.data.part2",
+        buildUrl + "/WebGL.data.part3",
+        buildUrl + "/WebGL.data.part4",
+        buildUrl + "/WebGL.data.part5",
+        buildUrl + "/WebGL.data.part6",
+        buildUrl + "/WebGL.data.part7"
+      ];
+
+      var wasmPartUrls = [
+        buildUrl + "/WebGL.wasm.000",
+        buildUrl + "/WebGL.wasm.001",
+        buildUrl + "/WebGL.wasm.002",
+        buildUrl + "/WebGL.wasm.003"
+      ];
+
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = async function() {
+        var assembledDataUrl = null;
+        var assembledWasmUrl = null;
+        try {
+          if (window.location.protocol === "file:") {
+            throw new Error("This Unity WebGL build must be served over http(s). Open it through GitHub Pages or a local static server instead of file://.");
+          }
+
+          assembledDataUrl = await assembleSplitFile(dataPartUrls, "application/octet-stream", "game data");
+          assembledWasmUrl = await assembleSplitFile(wasmPartUrls, "application/wasm", "WebAssembly code");
+          config.dataUrl = assembledDataUrl;
+          config.codeUrl = assembledWasmUrl;
+
+          setStatus("Starting Unity...");
+          var unityInstance = await createUnityInstance(canvas, config, function(progress) {
+            document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
+            setStatus("Starting Unity... " + Math.round(progress * 100) + "%");
+          });
+
+          window.unityInstance = unityInstance;
+          document.querySelector("#unity-loading-bar").style.display = "none";
+          if (statusNode && statusNode.parentNode) {
+            statusNode.parentNode.removeChild(statusNode);
+            statusNode = null;
+            if (!document.querySelector("#unity-warning").children.length) {
+              document.querySelector("#unity-warning").style.display = "none";
+            }
+          }
+          document.querySelector("#unity-fullscreen-button").onclick = function() {
+            unityInstance.SetFullscreen(1);
+          };
+        } catch (error) {
+          var errorMessage = error && error.message ? error.message : String(error);
+          document.querySelector("#unity-loading-bar").style.display = "none";
+          setStatus(errorMessage, true);
+          unityShowBanner(errorMessage, "error");
+          console.error("Unity startup failed:", error);
+        } finally {
+          if (assembledDataUrl) URL.revokeObjectURL(assembledDataUrl);
+          if (assembledWasmUrl) URL.revokeObjectURL(assembledWasmUrl);
+        }
+      };
+      script.onerror = function() {
+        var message = "Failed to load Unity loader script at " + loaderUrl + ".";
+        document.querySelector("#unity-loading-bar").style.display = "none";
+        setStatus(message, true);
+        unityShowBanner(message, "error");
+        console.error(message);
+      };
+
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
